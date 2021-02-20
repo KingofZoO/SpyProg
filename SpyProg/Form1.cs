@@ -44,6 +44,7 @@ namespace SpyProg {
                     if (!lastSaveFlag) {
                         lastSaveFlag = true;
                         spyFilePath = NewFilePath;
+                        procDict = new Dictionary<string, string>();
                     }
 
                     currWindow = WinApi.GetActiveWindowName();

